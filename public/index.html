@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Checkout</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        h1 {
+            color: #007bff;
+            font-size: 2.5rem;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+
+        #scanner-container, #cart-page, #payment-page, #receipt {
+            display: none;
+            width: 80%;
+            max-width: 800px;
+            margin: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            background-color: #fff;
+        }
+
+        #scanner-container {
+            display: block;
+        }
+
+        #modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            display: none;
+            z-index: 1000;
+            text-align: center;
+        }
+
+        #modal-message {
+            margin-bottom: 20px;
+        }
+
+        #modal button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        #modal button:hover {
+            background-color: #0056b3;
+        }
+
+        #cart-items li, #receipt-items li {
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        #receipt img {
+            margin-top: 20px;
+            display: block;
+            max-width: 200px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        #download-btn {
+            background-color: #28a745;
+        }
+
+        #download-btn:hover {
+            background-color: #218838;
+        }
+
+        .center {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
+
+        #header {
+            background-color: #007bff;
+            color: white;
+            padding: 15px;
+            border-radius: 8px 8px 0 0;
+            width: 100%;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <h1>Smart Checkout</h1>
+    </div>
+
+    <div id="scanner-container"></div>
+
+    <div id="modal">
+        <p id="modal-message"></p>
+        <button id="add-to-cart-btn">Add to Cart</button>
+        <button id="cancel-btn">Cancel</button>
+    </div>
+
+    <div id="cart-page">
+        <h2>Your Cart</h2>
+        <ul id="cart-items"></ul>
+        <div class="center">
+            <div id="total" class="bold">Total: $0.00</div>
+        </div>
+        <div class="center">
+            <button id="proceed-to-payment-btn">Proceed to Payment</button>
+            <button id="back-to-scanner-btn">Back to Scanner</button>
+        </div>
+    </div>
+
+    <div id="payment-page">
+        <h2>Payment</h2>
+        <p>Total amount to pay: <span id="payment-total" class="bold">$0.00</span></p>
+        <div class="center">
+            <button id="pay-now-btn">Pay Now</button>
+            <button id="back-to-scanner-btn-receipt">Back to Scanner</button>
+        </div>
+    </div>
+
+    <div id="receipt">
+        <h2>Thank you for your purchase!</h2>
+        <p>Your receipt has been generated:</p>
+        <ul id="receipt-items"></ul>
+        <div class="center">
+            <div id="receipt-total" class="bold">Total: $0.00</div>
+        </div>
+        <img id="qr-code" alt="QR Code">
+        <div class="center">
+            <button id="download-btn">Download Receipt</button>
+            <button id="back-to-scanner-btn-receipt">Back to Scanner</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+        let cart = [];
+        let total = 0;
+        let scannerInitialized = false;
+
+        document.addEventListener("DOMContentLoaded", () => {
+            document.getElementById("add-to-cart-btn").addEventListener("click", addToCart);
+            document.getElementById("cancel-btn").addEventListener("click", cancelAddToCart);
+            document.getElementById("proceed-to-payment-btn").addEventListener("click", goToPaymentPage);
+            document.getElementById("pay-now-btn").addEventListener("click", handlePayment);
+            document.getElementById("download-btn").addEventListener("click", downloadBill);
+            document.getElementById("back-to-scanner-btn").addEventListener("click", goToScannerPage);
+            document.getElementById("back-to-scanner-btn-receipt").addEventListener("click", goToScannerPage);
+
+            startScanner();
+        });
+
+        function startScanner() {
+            document.getElementById("scanner-container").style.display = "block";
+            document.getElementById("cart-page").style.display = "none";
+            document.getElementById("payment-page").style.display = "none";
+            document.getElementById("receipt").style.display = "none";
+
+            if (!scannerInitialized) {
+                Quagga.init({
+                    inputStream: {
+                        name: "Live",
+                        type: "LiveStream",
+                        target: document.querySelector('#scanner-container'),
+                        constraints: {
+                            width: 640,
+                            height: 480,
+                            facingMode: "environment"
+                        },
+                    },
+                    decoder: {
+                        readers: ["ean_reader", "upc_reader"]
+                    },
+                    locate: true,
+                    locator: {
+                        halfSample: true,
+                        patchSize: "medium",
+                        debug: {
+                            drawBoundingBox: true,
+                            showFrequency: true,
+                            drawScanline: true,
+                            showPattern: true
+                        }
+                    }
+                }, function (err) {
+                    if (err) {
+                        console.error(err);
+                        return;
+                    }
+                    Quagga.start();
+                    scannerInitialized = true;
+                });
+
+                Quagga.onDetected(async (data) => {
+                    const code = data.codeResult.code;
+                    console.log(`Barcode detected: ${code}`);
+                    const item = await fetchProductDetails(code);
+
+                    if (item) {
+                        showAddToCartModal(item);
+                    }
+                });
+            }
+        }
+
+        function stopScanner() {
+            if (scannerInitialized) {
+                Quagga.stop();
+                scannerInitialized = false;
+            }
+            // Stop video stream
+            const stream = document.querySelector('#scanner-container video')?.srcObject;
+            if (stream) {
+                const tracks = stream.getTracks();
+                tracks.forEach(track => track.stop());
+            }
+        }
+
+        function goToCartPage() {
+            stopScanner();
+            document.getElementById("scanner-container").style.display = "none";
+            document.getElementById("cart-page").style.display = "block";
+        }
+
+        function goToScannerPage() {
+            document.getElementById("cart-page").style.display = "none";
+            document.getElementById("receipt").style.display = "none";
+            startScanner();
+        }
+
+        function showAddToCartModal(item) {
+            document.getElementById("modal-message").innerText = `Add ${item.name} - $${item.price.toFixed(2)} to cart?`;
+            document.getElementById("modal").style.display = "block";
+            document.getElementById("modal").dataset.item = JSON.stringify(item);
+        }
+
+        function addToCart() {
+            const item = JSON.parse(document.getElementById("modal").dataset.item);
+            cart.push(item);
+            total += item.price;
+            document.getElementById("modal").style.display = "none";
+            updateCartDisplay();
+            goToCartPage();
+        }
+
+        function cancelAddToCart() {
+            document.getElementById("modal").style.display = "none";
+        }
+
+        function updateCartDisplay() {
+            const cartItems = document.getElementById("cart-items");
+            cartItems.innerHTML = "";
+
+            cart.forEach(item => {
+                const li = document.createElement("li");
+                li.innerHTML = `<span>${item.name}</span><span>$${item.price.toFixed(2)} x ${item.quantity || 1}</span>`;
+                cartItems.appendChild(li);
+            });
+
+            document.getElementById("total").innerText = `Total: $${total.toFixed(2)}`;
+        }
+
+        function goToPaymentPage() {
+            document.getElementById("cart-page").style.display = "none";
+            document.getElementById("payment-page").style.display = "block";
+            document.getElementById("payment-total").innerText = `$${total.toFixed(2)}`;
+        }
+
+        async function handlePayment() {
+            generateReceipt();
+        }
+
+        function generateReceipt() {
+            const qr = new QRious({
+                element: document.createElement('canvas'),
+                value: generateQRData(),
+                size: 150
+            });
+
+            const receiptItems = document.getElementById("receipt-items");
+            receiptItems.innerHTML = "";
+
+            cart.forEach(item => {
+                const li = document.createElement("li");
+                li.innerHTML = `<span>${item.name}</span><span>$${item.price.toFixed(2)} x ${item.quantity || 1}</span>`;
+                receiptItems.appendChild(li);
+            });
+
+            document.getElementById("receipt-total").innerText = `Total: $${total.toFixed(2)}`;
+            document.getElementById("qr-code").src = qr.toDataURL();
+
+            document.getElementById("payment-page").style.display = "none";
+            document.getElementById("receipt").style.display = "block";
+        }
+
+        function generateQRData() {
+            let qrData = 'Receipt:\n\n';
+            cart.forEach(item => {
+                qrData += `${item.name}: $${item.price.toFixed(2)} x ${item.quantity || 1}\n`;
+            });
+            qrData += `\nTotal: $${total.toFixed(2)}`;
+            return qrData;
+        }
+
+        function downloadBill() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(12);
+
+            doc.text('Smart Checkout', 10, 10);
+            doc.setFontSize(16);
+            doc.text('Receipt', 10, 20);
+
+            let y = 30;
+            cart.forEach(item => {
+                doc.text(`${item.name} - $${item.price.toFixed(2)} x ${item.quantity || 1}`, 10, y);
+                y += 10;
+            });
+
+            doc.setFontSize(14);
+            doc.text(`Total: $${total.toFixed(2)}`, 10, y + 10);
+
+            // Add QR Code
+            const qrCodeSrc = document.getElementById('qr-code').src;
+            doc.addImage(qrCodeSrc, 'PNG', 10, y + 20, 50, 50);
+
+            doc.save('receipt.pdf');
+        }
+
+        async function fetchProductDetails(barcode) {
+            try {
+                const response = await fetch(`http://localhost:3000/product/${barcode}`);
+                const data = await response.json();
+                return data.success ? data.item : null;
+            } catch (error) {
+                console.error("Error fetching product details:", error);
+                return null;
+            }
+        }
+    </script>
+</body>
+</html>
